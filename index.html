@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Video Marking App</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -32,7 +33,7 @@
       align-items: center;
     }
 
-    input {
+    .controls input {
       flex: 1;
       min-width: 280px;
       padding: 10px 12px;
@@ -62,6 +63,135 @@
       color: #555;
       font-size: 14px;
     }
+
+    .feedback-block {
+      margin-top: 24px;
+    }
+
+    #feedbackInput {
+      width: 100%;
+      margin-top: 8px;
+      padding: 12px;
+      font-size: 15px;
+      min-height: 120px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      box-sizing: border-box;
+      resize: vertical;
+    }
+
+    #rubricSection {
+      border-top: 1px solid #e5e7eb;
+      padding-top: 24px;
+      margin-top: 32px;
+    }
+
+    .rubric-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 16px;
+    }
+
+    .rubric-table th,
+    .rubric-table td {
+      border: 1px solid #ddd;
+      padding: 12px;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    .rubric-table th {
+      background: #f3f4f6;
+    }
+
+    .grade-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .grade-button {
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      border-radius: 8px;
+    }
+
+    .grade-button.active {
+      border-color: #111827;
+      font-weight: 700;
+    }
+
+    .mark-input {
+      width: 140px;
+      min-width: 140px;
+      padding: 8px 10px;
+      font-size: 15px;
+      box-sizing: border-box;
+    }
+
+    .content-subgrades {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .subcategory-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .subcategory-name {
+      font-size: 14px;
+      font-weight: 700;
+      color: #374151;
+    }
+
+    .subrubric-list {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .subrubric-label {
+      font-size: 14px;
+      color: #4b5563;
+    }
+
+    .summary-box {
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #fafafa;
+    }
+
+    .summary-total {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .summary-feedback-label {
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+
+    .summary-feedback-text {
+      white-space: pre-wrap;
+      line-height: 1.5;
+      color: #333;
+      min-height: 24px;
+    }
+
+    .actions {
+      margin-top: 20px;
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
   </style>
 </head>
 <body>
@@ -78,7 +208,7 @@
       <button id="loadVideoButton" type="button">Load Video</button>
     </div>
 
-    <div class="hint">This step only embeds the video. The marking rubric will be added below later.</div>
+    <div class="hint">This app embeds the video above and shows the marking rubric below.</div>
 
     <div id="videoContainer">
       <iframe
@@ -89,6 +219,26 @@
         title="YouTube video player"
       ></iframe>
     </div>
+
+    <div class="feedback-block">
+      <label for="feedbackInput"><strong>Feedback</strong></label>
+      <textarea
+        id="feedbackInput"
+        placeholder="Enter feedback here..."
+      ></textarea>
+    </div>
+
+    <section id="rubricSection">
+      <h2>Marking Rubric</h2>
+      <div style="margin-top: 6px; color: #444; font-size: 14px;">
+        <strong>Legend:</strong> HD (8.5-10), D (7.5-8.4), C (6.5-7.4), P (5.0-6.4), F (0-4.9)
+      </div>
+      <div id="rubricTableContainer"></div>
+    </section>
+
+    <div class="actions">
+      <button id="exportButton" type="button">Export XLSX</button>
+    </div>
   </div>
 
   <script>
@@ -96,6 +246,52 @@
     const youtubeIframe = document.getElementById('youtubeIframe');
     const videoContainer = document.getElementById('videoContainer');
     const loadVideoButton = document.getElementById('loadVideoButton');
+    const feedbackInput = document.getElementById('feedbackInput');
+    const exportButton = document.getElementById('exportButton');
+
+    const rubricItems = [
+      {
+        key: 'content',
+        name: 'Content',
+        weight: 0.4,
+        subcategories: ['Quality', 'Background', 'Physiology']
+      },
+      {
+        key: 'visuals_design_engagement',
+        name: 'Visuals, Design & Engagement',
+        weight: 0.3,
+        subcategories: ['Engagement', 'Diagrams']
+      },
+      {
+        key: 'organisation_clarity',
+        name: 'Organisation & Clarity',
+        weight: 0.2,
+        subcategories: ['Narrative', 'Audience', 'Length']
+      },
+      {
+        key: 'references',
+        name: 'References',
+        weight: 0.1
+      }
+    ];
+
+    const gradeOptions = ['HD', 'D', 'C', 'P', 'F'];
+
+    const rubricState = Object.fromEntries(
+      rubricItems.map(item => {
+        if (item.subcategories) {
+          return [
+            item.key,
+            {
+              grades: Object.fromEntries(item.subcategories.map(sub => [sub, ''])),
+              mark: ''
+            }
+          ];
+        }
+
+        return [item.key, { grade: '', mark: '' }];
+      })
+    );
 
     function embedVideo() {
       const id = videoIdInput.value.trim();
@@ -108,6 +304,230 @@
       videoContainer.style.display = 'block';
     }
 
+    function getTotalMark() {
+      let total = 0;
+
+      rubricItems.forEach(item => {
+        const val = parseFloat(rubricState[item.key].mark);
+        if (!isNaN(val)) {
+          total += val * item.weight;
+        }
+      });
+
+      return total;
+    }
+
+    function updateTotal() {
+      const total = getTotalMark();
+      const el = document.getElementById('totalMark');
+      if (el) {
+        el.textContent = total.toFixed(2);
+      }
+    }
+
+    function updateSummaryFeedback() {
+      const feedbackSummary = document.getElementById('feedbackSummary');
+      if (feedbackSummary) {
+        const text = feedbackInput.value.trim();
+        feedbackSummary.textContent = text || 'No feedback entered.';
+      }
+    }
+
+    function renderRubric() {
+      const container = document.getElementById('rubricTableContainer');
+
+      container.innerHTML = `
+        <table class="rubric-table">
+          <thead>
+            <tr>
+              <th>Rubric</th>
+              <th>Grade</th>
+              <th>Mark</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rubricItems.map(item => {
+              if (item.subcategories) {
+                return `
+                  <tr>
+                    <td>
+                      <strong>${item.name}</strong>
+                      <div class="subrubric-list">
+                        ${item.subcategories.map(sub => `<div class="subrubric-label">${sub}</div>`).join('')}
+                      </div>
+                    </td>
+                    <td>
+                      <div class="content-subgrades">
+                        ${item.subcategories.map(sub => `
+                          <div class="subcategory-row">
+                            <div class="subcategory-name">${sub}</div>
+                            <div class="grade-buttons">
+                              ${gradeOptions.map(grade => `
+                                <button
+                                  type="button"
+                                  class="grade-button ${rubricState[item.key].grades[sub] === grade ? 'active' : ''}"
+                                  data-key="${item.key}"
+                                  data-subcategory="${sub}"
+                                  data-grade="${grade}"
+                                >${grade}</button>
+                              `).join('')}
+                            </div>
+                          </div>
+                        `).join('')}
+                      </div>
+                    </td>
+                    <td>
+                      <input
+                        type="text"
+                        class="mark-input"
+                        data-key="${item.key}"
+                        value="${rubricState[item.key].mark}"
+                        placeholder="Enter mark"
+                      />
+                    </td>
+                  </tr>
+                `;
+              }
+
+              return `
+                <tr>
+                  <td>${item.name}</td>
+                  <td>
+                    <div class="grade-buttons">
+                      ${gradeOptions.map(grade => `
+                        <button
+                          type="button"
+                          class="grade-button ${rubricState[item.key].grade === grade ? 'active' : ''}"
+                          data-key="${item.key}"
+                          data-grade="${grade}"
+                        >${grade}</button>
+                      `).join('')}
+                    </div>
+                  </td>
+                  <td>
+                    <input
+                      type="text"
+                      class="mark-input"
+                      data-key="${item.key}"
+                      value="${rubricState[item.key].mark}"
+                      placeholder="Enter mark"
+                    />
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+
+        <div class="summary-box">
+          <div class="summary-total">
+            Final Mark: <span id="totalMark">0.00</span>
+          </div>
+          <div class="summary-feedback-label">Feedback</div>
+          <div class="summary-feedback-text" id="feedbackSummary">No feedback entered.</div>
+        </div>
+      `;
+
+      bindRubricEvents();
+      updateTotal();
+      updateSummaryFeedback();
+    }
+
+    function bindRubricEvents() {
+      document.querySelectorAll('.grade-button').forEach(button => {
+        button.addEventListener('click', () => {
+          const { key, grade, subcategory } = button.dataset;
+
+          if (subcategory) {
+            rubricState[key].grades[subcategory] = grade;
+          } else {
+            rubricState[key].grade = grade;
+          }
+
+          renderRubric();
+        });
+      });
+
+      document.querySelectorAll('.mark-input').forEach(input => {
+        input.addEventListener('input', () => {
+          const { key } = input.dataset;
+          rubricState[key].mark = input.value;
+          updateTotal();
+        });
+      });
+    }
+
+    function exportXlsx() {
+      const rows = [];
+
+      rubricItems.forEach(item => {
+        const itemState = rubricState[item.key];
+        const markValue = parseFloat(itemState.mark);
+        const weight = item.weight;
+        const weightedScore = !isNaN(markValue) ? markValue * weight : '';
+
+        if (item.subcategories) {
+          item.subcategories.forEach((sub, index) => {
+            rows.push({
+              Category: item.name,
+              Criterion: sub,
+              Grade: itemState.grades[sub] || '',
+              Mark: index === 0 ? itemState.mark : '',
+              Weight: index === 0 ? weight : '',
+              WeightedScore: index === 0 && weightedScore !== '' ? Number(weightedScore.toFixed(2)) : ''
+            });
+          });
+        } else {
+          rows.push({
+            Category: item.name,
+            Criterion: item.name,
+            Grade: itemState.grade || '',
+            Mark: itemState.mark,
+            Weight: weight,
+            WeightedScore: weightedScore !== '' ? Number(weightedScore.toFixed(2)) : ''
+          });
+        }
+      });
+
+      rows.push({
+        Category: 'TOTAL',
+        Criterion: '',
+        Grade: '',
+        Mark: '',
+        Weight: '',
+        WeightedScore: Number(getTotalMark().toFixed(2))
+      });
+
+      rows.push({
+        Category: 'FEEDBACK',
+        Criterion: '',
+        Grade: '',
+        Mark: feedbackInput.value,
+        Weight: '',
+        WeightedScore: ''
+      });
+
+      const marksSheet = XLSX.utils.json_to_sheet(rows, {
+        header: ['Category', 'Criterion', 'Grade', 'Mark', 'Weight', 'WeightedScore']
+      });
+
+      const feedbackRows = [
+        { Field: 'VideoID', Value: videoIdInput.value.trim() },
+        { Field: 'FinalMark', Value: Number(getTotalMark().toFixed(2)) },
+        { Field: 'Feedback', Value: feedbackInput.value }
+      ];
+
+      const feedbackSheet = XLSX.utils.json_to_sheet(feedbackRows, {
+        header: ['Field', 'Value']
+      });
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, marksSheet, 'Marks');
+      XLSX.utils.book_append_sheet(wb, feedbackSheet, 'Feedback');
+
+      XLSX.writeFile(wb, 'Group_Project_Marking_Rubric_Filled.xlsx');
+    }
+
     loadVideoButton.addEventListener('click', embedVideo);
 
     videoIdInput.addEventListener('keydown', (event) => {
@@ -115,6 +535,11 @@
         embedVideo();
       }
     });
+
+    feedbackInput.addEventListener('input', updateSummaryFeedback);
+    exportButton.addEventListener('click', exportXlsx);
+
+    renderRubric();
   </script>
 </body>
 </html>
