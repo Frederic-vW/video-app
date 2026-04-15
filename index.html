@@ -26,6 +26,18 @@
       margin-top: 0;
     }
 
+    .field-block {
+      margin-bottom: 16px;
+    }
+
+    .field-block input {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px 12px;
+      font-size: 16px;
+      box-sizing: border-box;
+    }
+
     .controls {
       display: flex;
       gap: 12px;
@@ -197,6 +209,16 @@
 <body>
   <div class="container">
     <h1>Video Marking App</h1>
+
+    <div class="field-block">
+      <label for="groupNameInput"><strong>Group Name</strong></label>
+      <input
+        type="text"
+        id="groupNameInput"
+        placeholder="Enter group name"
+      />
+    </div>
+
     <p>Enter a YouTube video ID to load the video.</p>
 
     <div class="controls">
@@ -206,6 +228,7 @@
         placeholder="e.g. dQw4w9WgXcQ"
       />
       <button id="loadVideoButton" type="button">Load Video</button>
+      <button id="popoutVideoButton" type="button">Pop Out Video</button>
     </div>
 
     <div class="hint">This app embeds the video above and shows the marking rubric below.</div>
@@ -242,12 +265,16 @@
   </div>
 
   <script>
+    const groupNameInput = document.getElementById('groupNameInput');
     const videoIdInput = document.getElementById('videoIdInput');
     const youtubeIframe = document.getElementById('youtubeIframe');
     const videoContainer = document.getElementById('videoContainer');
     const loadVideoButton = document.getElementById('loadVideoButton');
+    const popoutVideoButton = document.getElementById('popoutVideoButton');
     const feedbackInput = document.getElementById('feedbackInput');
     const exportButton = document.getElementById('exportButton');
+
+    let videoPopup = null;
 
     const rubricItems = [
       {
@@ -293,15 +320,83 @@
       })
     );
 
-    function embedVideo() {
+    function getEmbedUrl() {
       const id = videoIdInput.value.trim();
-      if (!id) {
+      return id ? `https://www.youtube.com/embed/${id}` : '';
+    }
+
+    function embedVideo() {
+      const embedUrl = getEmbedUrl();
+      if (!embedUrl) {
         alert('Enter a video ID.');
         return;
       }
 
-      youtubeIframe.src = `https://www.youtube.com/embed/${id}`;
+      youtubeIframe.src = embedUrl;
       videoContainer.style.display = 'block';
+
+      if (videoPopup && !videoPopup.closed) {
+        renderPopupVideo();
+      }
+    }
+
+    function renderPopupVideo() {
+      const embedUrl = getEmbedUrl();
+      if (!embedUrl || !videoPopup || videoPopup.closed) {
+        return;
+      }
+
+      videoPopup.document.open();
+      videoPopup.document.write(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Video Popup</title>
+          <style>
+            html, body {
+              margin: 0;
+              height: 100%;
+              background: #000;
+            }
+            iframe {
+              width: 100%;
+              height: 100%;
+              border: 0;
+            }
+          </style>
+        </head>
+        <body>
+          <iframe
+            src="${embedUrl}"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+            title="YouTube video player"
+          ></iframe>
+        </body>
+        </html>
+      `);
+      videoPopup.document.close();
+    }
+
+    function popoutVideo() {
+      const embedUrl = getEmbedUrl();
+      if (!embedUrl) {
+        alert('Enter a video ID.');
+        return;
+      }
+
+      if (!videoPopup || videoPopup.closed) {
+        videoPopup = window.open('', 'videoPopup', 'width=960,height=620,resizable=yes,scrollbars=no');
+      }
+
+      if (!videoPopup) {
+        alert('Popup blocked by the browser. Please allow popups for this page.');
+        return;
+      }
+
+      renderPopupVideo();
+      videoPopup.focus();
     }
 
     function getTotalMark() {
@@ -458,77 +553,70 @@
     }
 
     function exportXlsx() {
-      const rows = [];
+      const totalMark = Number(getTotalMark().toFixed(2));
+
+      const sheetRows = [
+        ['GROUP NAME', groupNameInput.value.trim(), '', '', '', ''],
+        ['VIDEO ID', videoIdInput.value.trim(), '', '', '', ''],
+        ['TOTAL', totalMark, '', '', '', ''],
+        ['', '', '', '', '', ''],
+        ['Category', 'Criterion', 'Grade', 'Mark', 'Weight', 'WeightedScore']
+      ];
 
       rubricItems.forEach(item => {
         const itemState = rubricState[item.key];
         const markValue = parseFloat(itemState.mark);
         const weight = item.weight;
-        const weightedScore = !isNaN(markValue) ? markValue * weight : '';
+        const weightedScore = !isNaN(markValue) ? Number((markValue * weight).toFixed(2)) : '';
 
         if (item.subcategories) {
           item.subcategories.forEach((sub, index) => {
-            rows.push({
-              Category: item.name,
-              Criterion: sub,
-              Grade: itemState.grades[sub] || '',
-              Mark: index === 0 ? itemState.mark : '',
-              Weight: index === 0 ? weight : '',
-              WeightedScore: index === 0 && weightedScore !== '' ? Number(weightedScore.toFixed(2)) : ''
-            });
+            sheetRows.push([
+              item.name,
+              sub,
+              itemState.grades[sub] || '',
+              index === 0 ? itemState.mark : '',
+              index === 0 ? weight : '',
+              index === 0 ? weightedScore : ''
+            ]);
           });
         } else {
-          rows.push({
-            Category: item.name,
-            Criterion: item.name,
-            Grade: itemState.grade || '',
-            Mark: itemState.mark,
-            Weight: weight,
-            WeightedScore: weightedScore !== '' ? Number(weightedScore.toFixed(2)) : ''
-          });
+          sheetRows.push([
+            item.name,
+            item.name,
+            itemState.grade || '',
+            itemState.mark,
+            weight,
+            weightedScore
+          ]);
         }
       });
 
-      rows.push({
-        Category: 'TOTAL',
-        Criterion: '',
-        Grade: '',
-        Mark: '',
-        Weight: '',
-        WeightedScore: Number(getTotalMark().toFixed(2))
-      });
+      sheetRows.push(['', '', '', '', '', '']);
+      sheetRows.push(['FEEDBACK', feedbackInput.value, '', '', '', '']);
 
-      rows.push({
-        Category: 'FEEDBACK',
-        Criterion: '',
-        Grade: '',
-        Mark: feedbackInput.value,
-        Weight: '',
-        WeightedScore: ''
-      });
-
-      const marksSheet = XLSX.utils.json_to_sheet(rows, {
-        header: ['Category', 'Criterion', 'Grade', 'Mark', 'Weight', 'WeightedScore']
-      });
+      const marksSheet = XLSX.utils.aoa_to_sheet(sheetRows);
 
       const feedbackRows = [
-        { Field: 'VideoID', Value: videoIdInput.value.trim() },
-        { Field: 'FinalMark', Value: Number(getTotalMark().toFixed(2)) },
-        { Field: 'Feedback', Value: feedbackInput.value }
+        ['Field', 'Value'],
+        ['GroupName', groupNameInput.value.trim()],
+        ['VideoID', videoIdInput.value.trim()],
+        ['FinalMark', totalMark],
+        ['Feedback', feedbackInput.value]
       ];
 
-      const feedbackSheet = XLSX.utils.json_to_sheet(feedbackRows, {
-        header: ['Field', 'Value']
-      });
+      const feedbackSheet = XLSX.utils.aoa_to_sheet(feedbackRows);
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, marksSheet, 'Marks');
       XLSX.utils.book_append_sheet(wb, feedbackSheet, 'Feedback');
 
-      XLSX.writeFile(wb, 'Group_Project_Marking_Rubric_Filled.xlsx');
+      const safeGroupName = (groupNameInput.value || 'Group').replace(/[^a-z0-9]/gi, '_');
+      XLSX.writeFile(wb, `Group_Project_Marking_${safeGroupName}.xlsx`);
     }
 
     loadVideoButton.addEventListener('click', embedVideo);
+    popoutVideoButton.addEventListener('click', popoutVideo);
 
     videoIdInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter') {
