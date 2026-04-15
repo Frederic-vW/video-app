@@ -5,6 +5,8 @@
   <title>Video Marking App</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <script src="https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -204,6 +206,71 @@
       gap: 12px;
       flex-wrap: wrap;
     }
+
+    .pdf-report {
+      width: 900px;
+      background: #fff;
+      color: #222;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+
+    .pdf-title {
+      margin: 0 0 18px 0;
+      font-size: 28px;
+    }
+
+    .pdf-meta {
+      display: grid;
+      grid-template-columns: 180px 1fr;
+      gap: 10px 14px;
+      margin-bottom: 20px;
+      font-size: 15px;
+    }
+
+    .pdf-meta-label {
+      font-weight: 700;
+    }
+
+    .pdf-video-box {
+      margin: 18px 0 22px 0;
+      padding: 14px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #fafafa;
+      font-size: 14px;
+    }
+
+    .pdf-section-title {
+      font-size: 22px;
+      margin: 24px 0 10px 0;
+    }
+
+    .pdf-legend {
+      font-size: 14px;
+      color: #444;
+      margin-bottom: 12px;
+    }
+
+    .pdf-feedback {
+      white-space: pre-wrap;
+      line-height: 1.5;
+      min-height: 40px;
+      padding: 12px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #fafafa;
+    }
+
+    .pdf-summary {
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #fafafa;
+      font-size: 18px;
+      font-weight: 700;
+    }
   </style>
 </head>
 <body>
@@ -261,6 +328,7 @@
 
     <div class="actions">
       <button id="exportButton" type="button">Export XLSX</button>
+      <button id="exportPdfButton" type="button">Export PDF</button>
     </div>
   </div>
 
@@ -273,6 +341,7 @@
     const popoutVideoButton = document.getElementById('popoutVideoButton');
     const feedbackInput = document.getElementById('feedbackInput');
     const exportButton = document.getElementById('exportButton');
+    const exportPdfButton = document.getElementById('exportPdfButton');
 
     let videoPopup = null;
 
@@ -552,6 +621,128 @@
       });
     }
 
+    function buildPdfReportElement() {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'pdf-report';
+
+      const rubricRows = rubricItems.map(item => {
+        const itemState = rubricState[item.key];
+
+        if (item.subcategories) {
+          return `
+            <tr>
+              <td>
+                <strong>${item.name}</strong>
+                <div class="subrubric-list">
+                  ${item.subcategories.map(sub => `<div class="subrubric-label">${sub}</div>`).join('')}
+                </div>
+              </td>
+              <td>
+                <div class="content-subgrades">
+                  ${item.subcategories.map(sub => `
+                    <div class="subcategory-row">
+                      <div class="subcategory-name">${sub}</div>
+                      <div>${itemState.grades[sub] || ''}</div>
+                    </div>
+                  `).join('')}
+                </div>
+              </td>
+              <td>${itemState.mark || ''}</td>
+            </tr>
+          `;
+        }
+
+        return `
+          <tr>
+            <td>${item.name}</td>
+            <td>${itemState.grade || ''}</td>
+            <td>${itemState.mark || ''}</td>
+          </tr>
+        `;
+      }).join('');
+
+      wrapper.innerHTML = `
+        <h1 class="pdf-title">Video Marking Report</h1>
+
+        <div class="pdf-meta">
+          <div class="pdf-meta-label">Group Name</div>
+          <div>${groupNameInput.value.trim() || '-'}</div>
+          <div class="pdf-meta-label">YouTube ID</div>
+          <div>${videoIdInput.value.trim() || '-'}</div>
+        </div>
+
+        <div class="pdf-video-box">
+          <strong>Video:</strong> ${videoIdInput.value.trim() || 'No video ID entered'}
+        </div>
+
+        <div class="pdf-section-title">Feedback</div>
+        <div class="pdf-feedback">${(feedbackInput.value || 'No feedback entered.').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+
+        <div class="pdf-section-title">Marking Rubric</div>
+        <div class="pdf-legend"><strong>Legend:</strong> HD (8.5-10), D (7.5-8.4), C (6.5-7.4), P (5.0-6.4), F (0-4.9)</div>
+
+        <table class="rubric-table">
+          <thead>
+            <tr>
+              <th>Rubric</th>
+              <th>Grade</th>
+              <th>Mark</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rubricRows}
+          </tbody>
+        </table>
+
+        <div class="pdf-summary">Final Mark: ${getTotalMark().toFixed(2)}</div>
+      `;
+
+      return wrapper;
+    }
+
+    async function exportPdf() {
+      const reportEl = buildPdfReportElement();
+      reportEl.style.position = 'fixed';
+      reportEl.style.left = '-10000px';
+      reportEl.style.top = '0';
+      document.body.appendChild(reportEl);
+
+      try {
+        const canvas = await html2canvas(reportEl, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff'
+        });
+
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF('p', 'mm', 'a4');
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const margin = 10;
+        const usableWidth = pageWidth - margin * 2;
+        const imgHeight = canvas.height * usableWidth / canvas.width;
+        const imgData = canvas.toDataURL('image/png');
+
+        let heightLeft = imgHeight;
+        let position = margin;
+
+        pdf.addImage(imgData, 'PNG', margin, position, usableWidth, imgHeight);
+        heightLeft -= (pageHeight - margin * 2);
+
+        while (heightLeft > 0) {
+          pdf.addPage();
+          position = margin - (imgHeight - heightLeft);
+          pdf.addImage(imgData, 'PNG', margin, position, usableWidth, imgHeight);
+          heightLeft -= (pageHeight - margin * 2);
+        }
+
+        const safeGroupName = (groupNameInput.value || 'Group').replace(/[^a-z0-9]/gi, '_');
+        pdf.save(`Group_Project_Marking_${safeGroupName}.pdf`);
+      } finally {
+        document.body.removeChild(reportEl);
+      }
+    }
+
     function exportXlsx() {
       const totalMark = Number(getTotalMark().toFixed(2));
 
@@ -626,6 +817,7 @@
 
     feedbackInput.addEventListener('input', updateSummaryFeedback);
     exportButton.addEventListener('click', exportXlsx);
+    exportPdfButton.addEventListener('click', exportPdf);
 
     renderRubric();
   </script>
