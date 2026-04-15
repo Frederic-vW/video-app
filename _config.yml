@@ -1,7 +1,0 @@
-# _config.yml
-markdown: kramdown
-kramdown:
-  input: GFM             # Uses GitHub Flavored Markdown quirks (fenced code blocks, etc.)
-  hard_wrap: true        # Enforces hard line breaks
-  syntax_highlighter: rouge
-  auto_ids: true         # Automatically generates IDs for headers
